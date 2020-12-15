@@ -1,0 +1,94 @@
+#include <SoftwareSerial.h>
+
+#define RX 10
+#define TX 11
+
+static SoftwareSerial adapter(RX,TX);
+
+// Change these
+static const String AP = "ENTER_YOUR_SSID_HERE";
+static const String PASS = "ENTER_THE_PASSWORD_HERE";
+static const String HOST = "CHANGE_THIS";
+static const int PORT = 80;
+static String data = "This string will be sent to the HOST on the spefied PORT";
+
+void setup()
+{
+  // Serial connection for printing to the console
+  Serial.begin(9600);
+
+  // Connect to the adapter
+  adapter.begin(115200);
+
+  // Set the adapter to mode 1 and then attempt to
+  // connect to the WIFI network
+  sendAT("AT+CWMODE=1", 5, true);
+  sendAT("AT+CWJAP=\""+ AP +"\",\""+ PASS +"\"", 10, true);
+}
+
+static void updateData(void)
+{
+  // Do something in here.
+  // Read sensor values, update motor position, etc.
+  // Then create a string and update the data string
+  // The data string will be sent to the host
+  data = data;
+}
+
+void loop()
+{
+  updateData();
+
+  // Turn on multiple connections (not necessary in this
+  // example but can be easily extended this way)
+  sendAT("AT+CIPMUX=1", 2.5f, true);
+
+  // Connect to the server
+  sendAT("AT+CIPSTART=0,\"TCP\",\"" + HOST + "\"," + PORT, 2.5f, false);
+
+  // Initiate the send process by telling the
+  // server how many bytes it should expect
+  sendAT("AT+CIPSEND=0," + String(data.length() + 4), 2.5f, false); //">"
+
+  // Send the data to the server and wait for a while
+  adapter.println(data);
+  delay(1500);
+
+  // Close the connection and repeat after 30s
+  sendAT("AT+CIPCLOSE=0", 10, true);
+  delay(30000);
+}
+
+void sendAT(String command, float timeout, boolean resend)
+{
+  // Print the command to the console and then send
+  // it to the ESP8266
+  Serial.print(command);
+  adapter.println(command);
+
+  delay(50);
+
+  // Set the timeout. The adapter has to respond with "OK"
+  // during this time
+  adapter.setTimeout(timeout * 1000);
+
+  // Check if the adapter responded with OK
+  boolean ret = adapter.find("OK");
+
+  // Print the result to the console
+  Serial.println(ret==true?" SUCCESS":" FAILED");
+
+  // Try to resend the command if necessary
+  while(resend && !ret)
+  {
+    Serial.print("RESEND: ");
+    Serial.print(command);
+    
+    adapter.println(command);
+
+    delay(50);
+
+    ret = adapter.find("OK");
+    Serial.println(ret==true?" SUCCESS":" FAILED");
+  }
+}

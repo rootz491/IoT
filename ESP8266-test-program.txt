@@ -1,0 +1,107 @@
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <fcntl.h> 
+#include <termios.h>
+#include <errno.h> 
+#include <sys/ioctl.h>
+
+#define BUFFSIZE 128
+#define DEBUG 1
+
+char buffer[BUFFSIZE];
+
+int openAdapter()
+{
+#if DEBUG==1
+	system("sudo chmod 777 /dev/serial0");
+#endif
+
+	// Open the serial port as a file with read/write permission
+	// The second option will make sure this process will not become
+	// the owner of the device file
+	int adapter = open("/dev/serial0", O_RDWR | O_NOCTTY);
+
+	if (adapter == -1)
+	{
+		printf("Could not open device! Error #%d:\n", errno);
+
+		return -1;
+	}
+
+	// Set options for interfacing the device
+	struct termios options;
+	tcgetattr(adapter, &options);
+	cfsetspeed(&options, B115200);
+	cfmakeraw(&options);
+
+	options.c_cflag &= ~CSTOPB;
+	options.c_cflag |= CLOCAL;
+	options.c_cflag |= CREAD;
+	options.c_cc[VTIME] = 1;
+	options.c_cc[VMIN] = BUFFSIZE;
+
+	// And associate the options from above with the device file opened earlier
+	tcsetattr(adapter, TCSANOW, &options);
+
+	return adapter;
+}
+
+int closeAdapter(int fd)
+{
+	return close(fd);
+}
+
+int readAdapter(int fd, FILE* output_fd, int timeout)
+{
+	int dataAvailable = 0, dataRead = 0;
+	
+	// Wait for a response
+	sleep(timeout);
+
+	// Clear the buffer and request the number of bytes
+	// available for reading from the adapter
+	memset(buffer, '\0', BUFFSIZE);
+	ioctl(fd, FIONREAD, &dataAvailable);
+
+	while (dataAvailable != 0)
+	{
+		dataRead += read(fd, buffer, BUFFSIZE-1);
+
+		fprintf(output_fd, "%s", buffer);
+		fflush(output_fd);
+
+		memset(buffer, '\0', BUFFSIZE);
+		ioctl(fd, FIONREAD, &dataAvailable);
+	}
+
+	return dataRead;
+}
+
+int writeAdapter(int fd, char* message)
+{
+	return dprintf(fd, "%s\r\n", message);
+}
+
+int sendCommand(int fd, char* command, int timeout)
+{
+	int printed = writeAdapter(fd, command);
+	int read = readAdapter(fd, stdout, timeout);
+	
+	return printed+read>0?0:-1;
+}
+
+int main(int argc, char** argv)
+{
+	// Open the connection to the device
+	int adapter = openAdapter();
+
+	sendCommand(adapter, "AT+GMR", 1);
+	sendCommand(adapter, "AT+CWMODE=1", 1);
+	sendCommand(adapter, "AT+CWJAP=\"YOUR_WIFI_NAME\",\"YOUR_WIFI_PASSWORD\"", 10);
+
+	// Send additional commands here
+
+	return closeAdapter(adapter)==0?EXIT_SUCCESS:EXIT_FAILURE;
+}
